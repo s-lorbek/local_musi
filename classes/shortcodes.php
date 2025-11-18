@@ -26,11 +26,10 @@
 
 namespace local_musi;
 
-use Closure;
-use context_system;
 use html_writer;
 use local_wunderbyte_table\filters\types\callback;
 use local_wunderbyte_table\filters\types\hourlist;
+use local_wunderbyte_table\filters\types\exactcolumn;
 use mod_booking\bo_availability\bo_info;
 use mod_booking\customfield\booking_handler;
 use mod_booking\output\page_allteachers;
@@ -40,6 +39,7 @@ use local_shopping_cart\shopping_cart_credits;
 use local_wunderbyte_table\filters\types\datepicker;
 use local_wunderbyte_table\filters\types\standardfilter;
 use mod_booking\booking;
+use mod_booking\shortcodes_handler;
 use mod_booking\singleton_service;
 use moodle_url;
 
@@ -103,19 +103,43 @@ class shortcodes {
         global $DB;
 
         self::fix_args($args);
-        $booking = self::get_booking($args);
+        $bookings = self::get_bookings($args);
         $perpage = \mod_booking\shortcodes::check_perpage($args);
 
         $table = self::inittableforcourses();
 
-        if (empty($booking->id)) {
+
+        $bookingids = [];
+        foreach ($bookings as $booking) {
+            if (!empty($booking->id)) {
+                $bookingids[] = (int)$booking->id;
+            }
+        }
+
+        if (empty($bookingids)) {
             return ['', ''];
-        } else if (!empty($args['includeoptions'])) {
+        }
+
+        $wherearray = ['bookingid' => $bookingids];
+
+        if (!empty($args['includeoptions'])) {
             $wherearray = [];
             [$inorequal, $additionalparams] = $DB->get_in_or_equal(explode(',', $args['includeoptions']), SQL_PARAMS_NAMED);
-            $additionalwhere = " (bookingid = " . (int)$booking->id . " OR id $inorequal )";
-        } else {
-            $wherearray = ['bookingid' => (int)$booking->id];
+            $conditions = [];
+            foreach ($bookingids as $index => $bookingid) {
+                $conditions[] = "bookingid = $bookingid";
+            }
+            $additionalwhere = " (" . $additionalwhere;
+            $together = implode(' OR ', $conditions);
+            $additionalwhere .= $together;
+            $additionalwhere .= " OR id $inorequal )";
+        }
+
+        if (
+            (!empty($args['noinvisible'] ?? null))
+            || (($args['invisible'] ?? true) === false || ($args['invisible'] ?? 1) === 0)
+        ) {
+            $wherearray['invisible'] = 0;
         }
 
         self::set_wherearray_from_arguments($args, $wherearray, $additionalwhere);
@@ -128,7 +152,6 @@ class shortcodes {
         if (!empty($additionalparams)) {
             $params = array_merge($params, $additionalparams);
         }
-
         $table->set_filter_sql($fields, $from, $where, $filter, $params);
         $table->use_pages = true;
 
@@ -144,7 +167,49 @@ class shortcodes {
         } else {
             self::generate_table_for_list($table, $args);
         }
+
+        if (isset($args['prefixfilter']) && !empty($args['prefixfilter'])) {
+            $prefixsearch = new exactcolumn('titleprefix', get_string('titleprefix', 'local_musi'));
+            $table->add_filter($prefixsearch);
+        }
         return [$table, $perpage];
+    }
+
+    /**
+     * Get bookings from shortcode arguments.
+     *
+     * @param array $args
+     *
+     * @return array
+     */
+    private static function get_bookings($args): array {
+        self::fix_args($args);
+
+        if (!isset($args['id'])) {
+            $args['id'] = get_config('local_musi', 'shortcodessetinstance');
+        }
+
+        $ids = explode(',', $args['id']);
+        $bookings = [];
+
+        foreach ($ids as $id) {
+            $id = trim($id);
+            if (!ctype_digit($id)) {
+                continue;
+            }
+            if (!$booking = singleton_service::get_instance_of_booking_by_cmid((int)$id)) {
+                continue;
+            }
+
+            $bookings[] = $booking;
+        }
+
+        if (empty($bookings)) {
+            // Couldn't find appropriate booking instances for $args['id'].
+            return [];
+        }
+
+        return $bookings;
     }
 
     /**
@@ -159,7 +224,7 @@ class shortcodes {
      * @return string
      */
     public static function allcourseslist($shortcode, $args, $content, $env, $next) {
-        global $DB;
+        global $CFG, $DB;
         self::fix_args($args);
         $additionalwhere = '';
         $additionalparams = [];
@@ -175,7 +240,12 @@ class shortcodes {
             $additionalparams
         );
         if (empty($table)) {
-            return 'Couldn\'t find right booking instance ' . $args['id'];;
+            if (get_config('booking', 'bookingdebugmode') || $CFG->debug == DEBUG_DEVELOPER) {
+                $cmidpart = $args['id'] ? 'for cmid ' . $args['id'] : '- no booking cmid given';
+                return "Couldn't find booking instance " . $cmidpart;
+            } else {
+                return get_string('norecords', 'local_wunderbyte_table');
+            }
         }
         $table->showcountlabel = empty($args['countlabel']) ? false : $args['countlabel'];
         return self::generate_output($args, $table, $perpage);
@@ -327,6 +397,8 @@ class shortcodes {
         $table->use_pages = false;
         $table->scrolltocontainer = false;
 
+        // For "my courses" we show receipts by default.
+        $args['showreceipts'] = $args['showreceipts'] ?? true;
         self::generate_table_for_cards($table, $args);
 
         self::set_table_options_from_arguments($table, $args);
@@ -418,6 +490,8 @@ class shortcodes {
 
         $table->use_pages = false;
 
+        // For "my courses" we show receipts by default.
+        $args['showreceipts'] = $args['showreceipts'] ?? true;
         self::generate_table_for_list($table, $args);
 
         self::set_table_options_from_arguments($table, $args);
@@ -688,7 +762,7 @@ class shortcodes {
 
         if (!empty($args['search'])) {
             $table->define_fulltextsearchcolumns([
-                'titleprefix', 'text', 'sportsdivision', 'sport', 'description', 'location',
+                'titleprefix', 'text', 'sportsdivision', 'sport', 'location',
                 'teacherobjects', 'botags']);
         }
 
@@ -780,7 +854,7 @@ class shortcodes {
         $table->add_classes_to_subcolumns('cardbody', ['columnvalueclass' => 'm-0 mt-1 mb-1 h5'], ['text']);
 
         // Subcolumns.
-        $subcolumns = ['attachment', 'teacher', 'dayofweektime', 'location', 'institution', 'responsiblecontact'];
+        $subcolumns = ['attachment', 'responsiblecontact', 'teacher', 'dayofweektime', 'location', 'institution'];
         if (get_config('local_musi', 'musishortcodesshowstart')) {
             $subcolumns[] = 'coursestarttime';
         }
@@ -838,6 +912,10 @@ class shortcodes {
         $table->add_classes_to_subcolumns('cardlist', ['columnalt' => get_string('bookingsalt', 'local_musi')], ['bookings']);
         $table->add_classes_to_subcolumns('cardimage', ['cardimagealt' => get_string('imagealt', 'local_musi')], ['image']);
 
+        // Show receipts by adding argument 'showreceipts=1' to shortcode.
+        if (shortcodes_handler::arg_is_true($args['showreceipts'] ?? false)) {
+            $table->add_subcolumns('cardfooter', ['receipt']);
+        }
         $table->add_subcolumns('cardfooter', ['course', 'price']);
         $table->add_classes_to_subcolumns('cardfooter', ['columnkeyclass' => 'd-none']);
         $table->add_classes_to_subcolumns('cardfooter', ['columnclass' => 'theme-text-color bold '], ['price']);
@@ -861,7 +939,7 @@ class shortcodes {
         self::fix_args($args);
 
         $subcolumnsleftside = ['text'];
-        $subcolumnsinfo = ['teacher', 'dayofweektime', 'location', 'institution', 'responsiblecontact'];
+        $subcolumnsinfo = ['responsiblecontact', 'teacher', 'dayofweektime', 'location', 'institution'];
         if (get_config('local_musi', 'musishortcodesshowstart')) {
             $subcolumnsinfo[] = 'coursestarttime';
         }
@@ -900,7 +978,12 @@ class shortcodes {
         $table->add_subcolumns('leftside', $subcolumnsleftside);
         $table->add_subcolumns('info', $subcolumnsinfo);
 
-        $table->add_subcolumns('rightside', ['botags', 'invisibleoption', 'course', 'price']);
+        $table->add_subcolumns('rightside', ['botags', 'invisibleoption']);
+        // Show receipts by adding argument 'showreceipts=1' to shortcode.
+        if (shortcodes_handler::arg_is_true($args['showreceipts'] ?? false)) {
+            $table->add_subcolumns('rightside', ['receipt']);
+        }
+        $table->add_subcolumns('rightside', ['course', 'price']);
 
         $table->add_classes_to_subcolumns('top', ['columnkeyclass' => 'd-none']);
         $table->add_classes_to_subcolumns('top', ['columnclass' => 'text-left col-md-8'], ['sport', 'sportsdivision']);

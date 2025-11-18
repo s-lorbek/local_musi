@@ -121,21 +121,32 @@ class musi_table extends wunderbyte_table {
             $datestrings = dates_handler::return_array_of_sessions_datestrings($optionid);
             $ret = implode(' | ', $datestrings);
         } else {
-            // Use the renderer to output this column.
-            $lang = current_language();
-
-            $cachekey = "musisessiondates$optionid$lang";
-            $cache = cache::make($this->cachecomponent, $this->rawcachename);
-
+            // Only use caching if enabled in settings.
+            if (get_config('local_musi', 'musicachebookingoptionsettings')) {
+                $lang = current_language();
+                $cache = cache::make('mod_booking', 'bookingoptionsettings');
+                $cachekey = $optionid;
+                $bocache = $cache->get($cachekey);
+                $lang = current_language();
+                $bokey = "cachecolshowdates$lang";
+            }
             if (
-                !empty($settings->selflearningcourse)
-                || !$ret = $cache->get($cachekey)
+                !get_config('local_musi', 'musicachebookingoptionsettings')
+                || !empty($settings->selflearningcourse)
+                || !$ret = ($bocache->{$bokey} ?? false)
             ) {
+                // Use the renderer to output this column.
                 $data = new \mod_booking\output\col_coursestarttime($optionid, $booking);
+                /** @var \mod_booking\output\renderer $output */
                 $output = singleton_service::get_renderer('mod_booking');
                 $ret = $output->render_col_coursestarttime($data);
-                if (empty($settings->selflearningcourse)) {
-                    $cache->set($cachekey, $ret);
+                if (
+                    empty($settings->selflearningcourse)
+                    && get_config('local_musi', 'musicachebookingoptionsettings')
+                    && !empty($bocache)
+                ) {
+                    $bocache->{$bokey} = $ret;
+                    $cache->set($cachekey, $bocache);
                 }
             }
         }
@@ -204,6 +215,7 @@ class musi_table extends wunderbyte_table {
                 $value['last'] = false;
             }
         }
+        /** @var \local_musi\output\renderer $output */
         $output = singleton_service::get_renderer('local_musi');
         return $output->render_col_teacher($data);
     }
@@ -217,11 +229,172 @@ class musi_table extends wunderbyte_table {
      * @throws dml_exception
      */
     public function col_price($values) {
+        if (get_config('local_musi', 'musicachebookingoptionsanswers')) {
+            $cache = cache::make('mod_booking', 'bookingoptionsanswers');
+            $cachekey = $values->id;
+            $bacache = $cache->get($cachekey);
+            $lang = current_language();
+            $bakey = "cachecolprice$lang";
+            $user = price::return_user_to_buy_for();
+
+            // This is our fast way out.
+            // We store a user specific cache in the booking answer.
+            if (
+                !empty($bacache)
+                && isset($bacache->{$bakey}[$user->id]['html'])
+                && $bacache->{$bakey}[$user->id]['expirationtime'] > time()
+            ) {
+                return $bacache->{$bakey}[$user->id]['html'];
+            }
+        }
+
         // Render col_price using a template.
         $settings = singleton_service::get_instance_of_booking_option_settings($values->id, $values);
         $buyforuser = price::return_user_to_buy_for();
+        $html = booking_bookit::render_bookit_button($settings, $buyforuser->id);
 
-        return booking_bookit::render_bookit_button($settings, $buyforuser->id);
+        if (get_config('local_musi', 'musicachebookingoptionsanswers') && !empty($bacache)) {
+            $expirationseconds = get_config('local_musi', 'musicacheexpirationtimeinseconds');
+            if (empty($expirationseconds) || $expirationseconds < 1) {
+                // We use a default setting of one hour.
+                $expirationseconds = 3600;
+            }
+            $bacache->{$bakey}[$user->id]['html'] = $html;
+            $bacache->{$bakey}[$user->id]['expirationtime'] = time() + $expirationseconds;
+            $cache->set($cachekey, $bacache);
+        }
+
+        return $html;
+    }
+
+    /**
+     * This function is called for each data row to allow processing of the
+     * receipt value.
+     *
+     * @param object $values Contains object with all the values of record.
+     * @return string $string Return a link to the receipt (with icon and button)
+     *                        or nothing if no receipt exists.
+     * @throws dml_exception
+     */
+    public function col_receipt($values): string {
+        global $DB, $OUTPUT;
+        if (!class_exists('local_shopping_cart\shopping_cart')) {
+            return '';
+        }
+
+        // If $values->id is missing, we show the values object in debug mode, so we can investigate what happens.
+        if (empty($values->id)) {
+            $debugmessage = "musi_table function col_receipt: ";
+            $debugmessage .= "id (optionid) is missing from values object - values: ";
+            $debugmessage .= json_encode($values);
+            debugging($debugmessage, DEBUG_DEVELOPER);
+            return '';
+        }
+
+        $optionid = $values->id;
+
+        // Use the "buyfor" user. So this works with cashier too.
+        $user = price::return_user_to_buy_for();
+        if (empty($user)) {
+            return '';
+        }
+        $userid = $user->id;
+
+        // Only use caching if enabled in settings.
+        if (get_config('local_musi', 'musicachebookingoptionsanswers')) {
+            $cache = cache::make('mod_booking', 'bookingoptionsanswers');
+            $cachekey = $optionid;
+            $bacache = $cache->get($cachekey);
+            $bakey = "cachecolreceipt";
+            // This is our fast way out.
+            // We store a user specific cache in the booking answer.
+            if (
+                !empty($bacache)
+                && isset($bacache->{$bakey}[$userid])
+            ) {
+                return $bacache->{$bakey}[$userid];
+            }
+        }
+
+        $receipt = '';
+        $sql = "SELECT *
+                FROM {local_shopping_cart_ledger} l
+                WHERE itemid=:itemid AND userid=:userid AND area='option'
+            ORDER BY timecreated DESC
+                LIMIT 1";
+        $params = ['itemid' => $values->id, 'userid' => $userid];
+        $record = $DB->get_record_sql($sql, $params);
+
+        if (!empty($record)) {
+            $url = new moodle_url(
+                '/local/shopping_cart/receipt.php',
+                [
+                    'success' => 1,
+                    'id' => $record->identifier,
+                    'idcol' => 'identifier', // Use the identifier to create the receipt.
+                    'userid' => $userid,
+                    'paymentstatus' => $record->paymentstatus,
+                ]
+            );
+            $labelstring = $record->paymentstatus == LOCAL_SHOPPING_CART_PAYMENT_CANCELED ?
+                'cancelconfirmation' :
+                'receipt';
+            $icon = '<i class="fa fa-file-text-o" aria-hidden="true"></i>&nbsp;';
+            $buttonclasses = 'musi-receipt-btn btn btn-secondary p-1 mt-2 mb-2 w-100';
+            $receipt = html_writer::tag('a', $icon . get_string($labelstring, 'local_shopping_cart'), [
+                'href' => $url->out(false),
+                'target' => '_blank',
+                'class' => $buttonclasses,
+            ]);
+
+            // For installments, we need to aggregate all receipts.
+            $schistoryid = $record->schistoryid ?? 0;
+            if (!empty($schistoryid) && $record->paymentstatus == LOCAL_SHOPPING_CART_PAYMENT_SUCCESS) {
+                $additionalidentifiers = $DB->get_fieldset_sql(
+                    "SELECT DISTINCT identifier
+                                FROM {local_shopping_cart_ledger}
+                               WHERE schistoryid = :schistoryid
+                                 AND identifier <> :identifier
+                                 AND identifier IS NOT NULL
+                                 AND paymentstatus = :paymentstatus
+                            ORDER BY identifier DESC",
+                    [
+                        'schistoryid' => $schistoryid,
+                        'identifier' => $record->identifier,
+                        'paymentstatus' => LOCAL_SHOPPING_CART_PAYMENT_SUCCESS,
+                    ]
+                );
+                if (!empty($additionalidentifiers)) {
+                    $data = new stdClass(); // Data object to render installment receipts template.
+                    $data->hasinstallments = true;
+                    $data->installmentreceipturls[] = [
+                        'identifier' => $record->identifier,
+                        'installmentreceipturl' => $url,
+                    ];
+                    foreach ($additionalidentifiers as $additionalidentifier) {
+                        $data->installmentreceipturls[] = [
+                            'identifier' => $additionalidentifier,
+                            'installmentreceipturl' => new moodle_url("/local/shopping_cart/receipt.php", [
+                                'id' => $additionalidentifier,
+                                'userid' => $userid,
+                            ]),
+                        ];
+                    }
+                    $data->buttonclasses = $buttonclasses;
+                    $receipt = $OUTPUT->render_from_template(
+                        'local_shopping_cart/installment_receipts',
+                        $data
+                    );
+                }
+            }
+        }
+
+        // After generating the link, we save it in user-specific cache.
+        if (get_config('local_musi', 'musicachebookingoptionsanswers') && !empty($bacache)) {
+            $bacache->{$bakey}[$userid] = $receipt;
+            $cache->set($cachekey, $bacache);
+        }
+        return $receipt;
     }
 
     /**
@@ -293,7 +466,8 @@ class musi_table extends wunderbyte_table {
                 if (strlen($shortdescription) > $maxlength) {
                     $ret =
                         '<div>
-                            <a data-toggle="collapse" href="#collapseDescription' . $values->id . '" role="button"
+                            <a data-toggle="collapse" data-bs-toggle="collapse"
+                                href="#collapseDescription' . $values->id . '" role="button"
                                 aria-expanded="false" aria-controls="collapseDescription">
                                 <i class="fa fa-info-circle" aria-hidden="true"></i>&nbsp;' .
                         get_string('showdescription', 'mod_booking') . '...</a>
@@ -319,20 +493,41 @@ class musi_table extends wunderbyte_table {
      * @throws coding_exception
      */
     public function col_bookings($values) {
+        if (get_config('local_musi', 'musicachebookingoptionsanswers')) {
+            $cache = cache::make('mod_booking', 'bookingoptionsanswers');
+            $cachekey = $values->id;
+            $bacache = $cache->get($cachekey);
+            $lang = current_language();
+            $bakey = "cachecolbookings$lang";
+            $user = price::return_user_to_buy_for();
 
-        global $PAGE;
+            // This is our fast way out.
+            // We store a user specific cache in the booking answer.
+            if (
+                !empty($bacache)
+                && isset($bacache->{$bakey}[$user->id])
+            ) {
+                return $bacache->{$bakey}[$user->id];
+            }
+        }
 
         $settings = singleton_service::get_instance_of_booking_option_settings($values->id, $values);
-        // Render col_bookings using a template.
-
         $buyforuser = price::return_user_to_buy_for();
 
         $data = new col_availableplaces($values, $settings, $buyforuser);
         if (!empty($this->displayoptions['showmaxanwers'])) {
             $data->showmaxanswers = $this->displayoptions['showmaxanwers'];
         }
+        /** @var \mod_booking\output\renderer $output */
         $output = singleton_service::get_renderer('mod_booking');
-        return $output->render_col_availableplaces($data);
+        $html = $output->render_col_availableplaces($data);
+
+        if (get_config('local_musi', 'musicachebookingoptionsanswers') && !empty($bacache)) {
+            $bacache->{$bakey}[$user->id] = $html;
+            $cache->set($cachekey, $bacache);
+        }
+
+        return $html;
     }
 
     /**
@@ -536,7 +731,7 @@ class musi_table extends wunderbyte_table {
      * @throws coding_exception
      */
     public function col_dayofweektime($values) {
-
+        global $USER;
         // If $values->id is missing, we show the values object in debug mode, so we can investigate what happens.
         if (empty($values->id)) {
             $debugmessage = "musi_table function col_dayofweektime: ";
@@ -545,12 +740,32 @@ class musi_table extends wunderbyte_table {
             debugging($debugmessage, DEBUG_DEVELOPER);
             return '';
         }
+        if (get_config('local_musi', 'musicachebookingoptionsettings')) {
+            $cache = cache::make('mod_booking', 'bookingoptionsettings');
+            $cachekey = $values->id;
+            $bocache = $cache->get($cachekey);
+            $lang = current_language();
+            $bokey = "cachecoldayofweektime$lang";
+
+            // This is our fast way out.
+            // We store a user specific cache in the booking option.
+            if (
+                !empty($bocache)
+                && isset($bocache->{$bokey}[$USER->id])
+            ) {
+                return $bocache->{$bokey}[$USER->id];
+            }
+        }
 
         $ret = '';
         $settings = singleton_service::get_instance_of_booking_option_settings($values->id, $values);
-
         if (!empty($settings->dayofweektime)) {
             $ret = dates_handler::render_dayofweektime_strings($settings->dayofweektime, ' | ');
+        }
+
+        if (get_config('local_musi', 'musicachebookingoptionsettings') && !empty($bocache)) {
+            $bocache->{$bokey}[$USER->id] = $ret;
+            $cache->set($cachekey, $bocache);
         }
 
         return $ret;
@@ -764,15 +979,14 @@ class musi_table extends wunderbyte_table {
         }
 
         $contacts = [];
-        foreach ($settings->responsiblecontact as $contactid) {
-            $user = singleton_service::get_instance_of_user((int) $contactid);
+        foreach ($settings->responsiblecontactuser as $user) {
             if (empty($user)) {
                 continue;
             }
             if (empty($user->firstname)) {
                 debugging(
                     " musi_table function col_responsiblecontact:
-                    firstname is missing for user with id $contactid in bookingoption $values->id ",
+                    firstname is missing for user with id $user->id in bookingoption $values->id ",
                     DEBUG_DEVELOPER
                 );
                 $user->firstname = '';
@@ -780,7 +994,7 @@ class musi_table extends wunderbyte_table {
             if (empty($user->lastname)) {
                 debugging(
                     " musi_table function col_responsiblecontact:
-                    lastname is missing for user with id $contactid in bookingoption $values->id ",
+                    lastname is missing for user with id $user->id in bookingoption $values->id ",
                     DEBUG_DEVELOPER
                 );
                 $user->lastname = '';
@@ -788,7 +1002,7 @@ class musi_table extends wunderbyte_table {
             if (empty($user->email)) {
                 debugging(
                     " musi_table function col_responsiblecontact:
-                    email is missing for user with id $contactid in bookingoption $values->id ",
+                    email is missing for user with id $user->id in bookingoption $values->id ",
                     DEBUG_DEVELOPER
                 );
                 $user->email = '';
@@ -805,10 +1019,10 @@ class musi_table extends wunderbyte_table {
                 if (empty($settings->teacherids)) {
                     $settings->teacherids = [];
                 }
-                if (in_array($contactid, $settings->teacherids)) {
-                    $url = new moodle_url('/mod/booking/teacher.php', ['teacherid' => $contactid]);
+                if (in_array($user->id, $settings->teacherids)) {
+                    $url = new moodle_url('/mod/booking/teacher.php', ['teacherid' => $user->id]);
                 } else {
-                    $url = new moodle_url('/user/profile.php', ['id' => $contactid]);
+                    $url = new moodle_url('/user/profile.php', ['id' => $user->id]);
                 }
                 $contacts[] = html_writer::link($url, $userstring);
             }
@@ -843,6 +1057,23 @@ class musi_table extends wunderbyte_table {
      * @throws coding_exception
      */
     public function col_action($values) {
+        global $USER;
+        if (get_config('local_musi', 'musicachebookingoptionsettings')) {
+            $cache = cache::make('mod_booking', 'bookingoptionsettings');
+            $cachekey = $values->id;
+            $bocache = $cache->get($cachekey);
+            $lang = current_language();
+            $bokey = "cachecolaction$lang";
+
+            // This is our fast way out.
+            // We store a user specific cache in the booking answer.
+            if (
+                !empty($bocache)
+                && isset($bocache->{$bokey}[$USER->id])
+            ) {
+                return $bocache->{$bokey}[$USER->id];
+            }
+        }
 
         $booking = singleton_service::get_instance_of_booking_by_bookingid($values->bookingid);
 
@@ -867,8 +1098,12 @@ class musi_table extends wunderbyte_table {
             if (!empty($bosettings)) {
                 $context = context_module::instance($bosettings->cmid);
 
-                // ONLY users with the mod/booking:updatebooking capability can edit options.
-                $allowedit = has_capability('mod/booking:updatebooking', $context);
+                // ONLY users with the mod/booking:updatebooking capability can edit options or designaated teachers.
+                $allowedit = (
+                    has_capability('mod/booking:updatebooking', $context)
+                    || (has_capability('mod/booking:addeditownoption', $context) && booking_check_if_teacher($values))
+                    || (has_capability('mod/booking:limitededitownoption', $context) && booking_check_if_teacher($values))
+                );
                 if ($allowedit) {
                     if (isset($bosettings->editoptionurl)) {
                         // Get the URL to edit the option.
@@ -907,6 +1142,7 @@ class musi_table extends wunderbyte_table {
                     has_capability('mod/booking:viewreports', $context)
                     || (has_capability('mod/booking:limitededitownoption', $context) && booking_check_if_teacher($values))
                     || has_capability('mod/booking:updatebooking', $context)
+                    || (has_capability('mod/booking:addeditownoption', $context) && booking_check_if_teacher($values))
                 );
 
                 // If the user has no capability to editoptions, the URLs will not be added.
@@ -968,8 +1204,15 @@ class musi_table extends wunderbyte_table {
             $data->showundocancel = null;
         }
 
+        /** @var \local_musi\output\renderer $output */
         $output = singleton_service::get_renderer('local_musi');
-        return $output->render_musi_bookingoption_menu($data);
+        $html = $output->render_musi_bookingoption_menu($data);
+
+        if (get_config('local_musi', 'musicachebookingoptionsettings') && !empty($bocache)) {
+            $bocache->{$bokey}[$USER->id] = $html;
+            $cache->set($cachekey, $bocache);
+        }
+        return $html;
     }
 
     /**
@@ -979,6 +1222,7 @@ class musi_table extends wunderbyte_table {
      */
     public function finish_html() {
         $table = new \local_wunderbyte_table\output\table($this);
+        /** @var \mod_booking\output\renderer $output */
         $output = singleton_service::get_renderer('mod_booking');
         echo $output->render_bookingoptions_wbtable($table);
     }

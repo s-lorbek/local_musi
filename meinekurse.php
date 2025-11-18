@@ -105,6 +105,9 @@ if (!empty($archivecmids)) {
 
         // Add a section for each cmid.
         foreach ($archivecmids as $archivecmid) {
+            if (!booking::is_valid_booking_cmid($archivecmid)) {
+                continue;
+            }
             $bookingsettings = singleton_service::get_instance_of_booking_settings_by_cmid($archivecmid);
 
             if (!empty($bookingsettings)) {
@@ -113,8 +116,8 @@ if (!empty($archivecmids)) {
                         <div class='card-header' id='coursesiteacharchive-cmid-$archivecmid'>
                             <h2 class='mb-0'>
                                 <button class='btn btn-link btn-block text-left' type='button' data-toggle='collapse'
-                                data-target='#collapse-teach-cmid-$archivecmid' aria-expanded='true'
-                                aria-controls='collapse-teach-cmid-$archivecmid'>
+                                data-bs-toggle='collapse' data-target='#collapse-teach-cmid-$archivecmid' data-bs-target='#collapse-teach-cmid-$archivecmid'
+                                aria-expanded='true' aria-controls='collapse-teach-cmid-$archivecmid'>
                                     $bookingsettings->name
                                 </button>
                             </h2>
@@ -138,6 +141,9 @@ if (!empty($archivecmids)) {
     $archivehtml = '<div class="accordion" id="coursesibookedarchive">';
     // Add a section for each cmid.
     foreach ($archivecmids as $archivecmid) {
+        if (!booking::is_valid_booking_cmid($archivecmid)) {
+            continue;
+        }
         $bookingsettings = singleton_service::get_instance_of_booking_settings_by_cmid($archivecmid);
 
         if (!empty($bookingsettings)) {
@@ -146,8 +152,8 @@ if (!empty($archivecmids)) {
                     <div class='card-header' id='coursesibookedarchive-cmid-$archivecmid'>
                         <h2 class='mb-0'>
                             <button class='btn btn-link btn-block text-left' type='button' data-toggle='collapse'
-                            data-target='#collapse-booked-cmid-$archivecmid' aria-expanded='true'
-                            aria-controls='collapse-booked-cmid-$archivecmid'>
+                            data-bs-toggle='collapse' data-target='#collapse-booked-cmid-$archivecmid' data-bs-target='#collapse-booked-cmid-$archivecmid'
+                            aria-expanded='true' aria-controls='collapse-booked-cmid-$archivecmid'>
                                 $bookingsettings->name
                             </button>
                         </h2>

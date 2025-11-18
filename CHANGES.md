@@ -1,3 +1,43 @@
+## Version 0.9.31 (2025111000)
+* Improvement: Receipt column in MUSI table now also supports dropdown for multiple installments receipts.
+
+## Version 0.9.30 (2025110300)
+* New feature: Show receipt in MUSI mycourses [meinekurseliste] table and cache them.
+    Receipts can be turned on/off with argument "showreceipts".
+* Improvement: Show responsiblecontact before teachers.
+* Improvement: Changes to make local_musi ready for Moodle 5.
+* Bugfix: Arg for invisible options.
+* Bugfix: Fix SQL to include space and right brackets to work with filters.
+* Bugfix: Several fixes for musi shortcodes.
+
+## Version 0.9.29 (2025103000)
+* Improvement: Enable noinvisible arg for shortcode to display visible options only, regardless of capabilities.
+* v0Improvement: Only display prefixfilter when arg is set.
+
+## Version 0.9.28 (2025101600)
+* New feature: Added filter to search for titleprefix.
+* New feature: Shortcode für multiple CMIDs.
+* Improvement: Remove description from fulltextsearch.
+* Improvement: Added edit button based on capabilities.
+* Bugfix: Includeoptions now works for shortcodes with multiple CMIDs.
+
+## Version 0.9.27 (2025091700)
+* Improvement: Caching of descriptions for better performance.
+* Improvement: Fallback for argument in shortcode.
+* Improvement: Dashboard Block Region.
+* Improvement: Retrieve user information more efficiently.
+* Improvement: Add caching for col_price & col_action.
+* Improvement: Add caching for col_bookings and col_dayofweektime.
+* Improvement: Add caching for col_showdates.
+* Improvement: New settings to turn musi tables caches on/off.
+* Improvement: Add cache expiration time.
+* Improvement: Expiration for col_price.
+* Bugfix: Fix musi_table.
+* Bugfix: Don't set ba cache without proper constructor.
+* Bugfix: Avoid reading on empty.
+* Bugfix: Fix table prefix in task to hide expired options.
+* Bugfix: Disable musi table caches by default and store col_showdates in options cache.
+
 ## Version 0.9.26 (2025090100)
 * Bugfix: Correctly apply includeoptions arg in shortcodes.
 

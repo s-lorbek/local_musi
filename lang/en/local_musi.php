@@ -60,6 +60,9 @@ $string['newsletterunsubscribed:error'] = 'There was an error with unsubscribing
 $string['birthdateprofilefield'] = 'Birthdate profile field';
 $string['birthdateprofilefielddesc'] = 'Choose the custom user profile field which is used to store the birthdate.';
 $string['autoaddtosubstitutionspool'] = 'Enrol teachers automatically to substitutionpool of their sport';
+$string['musicachebookingoptionsettings'] = 'Activate booking options caching of M:USI tables for better performance';
+$string['musicachebookingoptionsanswers'] = 'Activate booking answers caching of M:USI tables for better performance';
+$string['musicacheexpirationtimeinseconds'] = 'Cache expiration time in seconds (Example: 3600 means that the cache will be newly generated after an hour)';
 
 // Shortcodes.
 $string['shortcodelists'] = 'Shortcode lists';
@@ -157,7 +160,7 @@ $string['changebookinginstance'] = 'Set default semester instance';
 $string['editbotags'] = 'Edit tags';
 $string['createbotag'] = 'Create new tag...';
 $string['createbotag:helptext'] = '<p>
-<a data-toggle="collapse" href="#collapseTagsHelptext" role="button" aria-expanded="false" aria-controls="collapseTagsHelptext">
+<a data-toggle="collapse" data-bs-toggle="collapse" href="#collapseTagsHelptext" role="button" aria-expanded="false" aria-controls="collapseTagsHelptext">
   <i class="fa fa-question-circle" aria-hidden="true"></i><span>&nbsp;Help: How to configure tags...</span>
 </a>
 </p>
