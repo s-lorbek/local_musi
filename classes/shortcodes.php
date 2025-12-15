@@ -28,10 +28,14 @@ namespace local_musi;
 
 use html_writer;
 use local_wunderbyte_table\filters\types\callback;
+use local_wunderbyte_table\filters\types\customfieldfilter;
 use local_wunderbyte_table\filters\types\hourlist;
 use local_wunderbyte_table\filters\types\exactcolumn;
+use local_wunderbyte_table\local\helper\actforuser;
+use local_wunderbyte_table\wunderbyte_table;
 use mod_booking\bo_availability\bo_info;
 use mod_booking\customfield\booking_handler;
+use mod_booking\filters\available_places;
 use mod_booking\output\page_allteachers;
 use local_musi\table\musi_table;
 use local_shopping_cart\shopping_cart;
@@ -106,8 +110,7 @@ class shortcodes {
         $bookings = self::get_bookings($args);
         $perpage = \mod_booking\shortcodes::check_perpage($args);
 
-        $table = self::inittableforcourses();
-
+        $table = self::inittableforcourses($args);
 
         $bookingids = [];
         foreach ($bookings as $booking) {
@@ -147,12 +150,7 @@ class shortcodes {
         if (isset($args['teacherid']) && (is_int((int)$args['teacherid']))) {
             $wherearray['teacherobjects'] = '%"id":' . $args['teacherid'] . ',%';
         }
-        [$fields, $from, $where, $params, $filter] = self::get_sql_params($booking, $wherearray, $additionalwhere);
 
-        if (!empty($additionalparams)) {
-            $params = array_merge($params, $additionalparams);
-        }
-        $table->set_filter_sql($fields, $from, $where, $filter, $params);
         $table->use_pages = true;
 
         if (!empty($args['image'])) {
@@ -172,6 +170,14 @@ class shortcodes {
             $prefixsearch = new exactcolumn('titleprefix', get_string('titleprefix', 'local_musi'));
             $table->add_filter($prefixsearch);
         }
+
+        [$fields, $from, $where, $params, $filter] = self::get_sql_params($booking, $wherearray, $additionalwhere, null, $table);
+
+        if (!empty($additionalparams)) {
+            $params = array_merge($params, $additionalparams);
+        }
+        $table->set_filter_sql($fields, $from, $where, $filter, $params);
+
         return [$table, $perpage];
     }
 
@@ -247,7 +253,9 @@ class shortcodes {
                 return get_string('norecords', 'local_wunderbyte_table');
             }
         }
-        $table->showcountlabel = empty($args['countlabel']) ? false : $args['countlabel'];
+
+        $table->foruserid = actforuser::get_foruserid(['urlparamforuserid' => 'userid']);
+
         return self::generate_output($args, $table, $perpage);
     }
 
@@ -283,7 +291,7 @@ class shortcodes {
         $booking = self::get_booking($args);
         $perpage = \mod_booking\shortcodes::check_perpage($args);
 
-        $table = self::inittableforcourses();
+        $table = self::inittableforcourses($args);
 
         $wherearray = ['bookingid' => (int)$booking->id];
 
@@ -293,10 +301,6 @@ class shortcodes {
         if (isset($args['teacherid']) && (is_int((int)$args['teacherid']))) {
             $wherearray['teacherobjects'] = '%"id":' . $args['teacherid'] . ',%';
         }
-
-        [$fields, $from, $where, $params, $filter] = self::get_sql_params($booking, $wherearray, $additionalwhere);
-
-        $table->set_filter_sql($fields, $from, $where, $filter, $params);
 
         $table->use_pages = false;
 
@@ -356,6 +360,10 @@ class shortcodes {
 
         self::set_table_options_from_arguments($table, $args);
 
+        [$fields, $from, $where, $params, $filter] = self::get_sql_params($booking, $wherearray, $additionalwhere, null, $table);
+
+        $table->set_filter_sql($fields, $from, $where, $filter, $params);
+
         $table->tabletemplate = 'local_musi/table_grid_list';
         return self::generate_output($args, $table, $perpage);
     }
@@ -380,7 +388,7 @@ class shortcodes {
 
         $perpage = \mod_booking\shortcodes::check_perpage($args);
 
-        $table = self::inittableforcourses();
+        $table = self::inittableforcourses($args);
 
         $wherearray = ['bookingid' => (int)$booking->id];
 
@@ -390,9 +398,6 @@ class shortcodes {
         if (isset($args['teacherid']) && (is_int((int)$args['teacherid']))) {
             $wherearray['teacherobjects'] = '%"id":' . $args['teacherid'] . ',%';
         }
-        [$fields, $from, $where, $params, $filter] = self::get_sql_params($booking, $wherearray, $additionalwhere, $userid);
-
-        $table->set_filter_sql($fields, $from, $where, $filter, $params);
 
         $table->use_pages = false;
         $table->scrolltocontainer = false;
@@ -403,6 +408,11 @@ class shortcodes {
 
         self::set_table_options_from_arguments($table, $args);
         $table->cardsort = true;
+
+        [$fields, $from, $where, $params, $filter] = self::get_sql_params($booking, $wherearray, $additionalwhere, $userid, $table);
+
+        $table->set_filter_sql($fields, $from, $where, $filter, $params);
+
         // We override the cache, because the my cache has to be invalidated with every booking.
         $table->define_cache('mod_booking', 'mybookingoptionstable');
 
@@ -428,18 +438,11 @@ class shortcodes {
 
         $perpage = \mod_booking\shortcodes::check_perpage($args);
 
-        $table = self::inittableforcourses();
+        $table = self::inittableforcourses($args);
 
         // We want to check for the currently logged in user...
         // ... if (s)he is teaching courses.
         $teacherid = $USER->id;
-
-        // This is the important part: We only filter for booking options where the current user is a teacher!
-        // Also we only want to show courses for the currently set booking instance (semester instance).
-        [$fields, $from, $where, $params, $filter] =
-            booking::get_all_options_of_teacher_sql($teacherid, (int)$booking->id);
-
-        $table->set_filter_sql($fields, $from, $where, $filter, $params);
 
         $table->use_pages = false;
 
@@ -452,6 +455,13 @@ class shortcodes {
         // This allows us to use infinite scrolling, No pages will be used.
         $table->infinitescroll = 30;
         $table->scrolltocontainer = false;
+
+        // This is the important part: We only filter for booking options where the current user is a teacher!
+        // Also we only want to show courses for the currently set booking instance (semester instance).
+        [$fields, $from, $where, $params, $filter] =
+            booking::get_all_options_of_teacher_sql($teacherid, (int)$booking->id);
+
+        $table->set_filter_sql($fields, $from, $where, $filter, $params);
 
         return self::generate_output($args, $table, $perpage);
     }
@@ -476,17 +486,13 @@ class shortcodes {
 
         $perpage = \mod_booking\shortcodes::check_perpage($args);
 
-        $table = self::inittableforcourses();
+        $table = self::inittableforcourses($args);
 
         $table->showcountlabel = empty($args['countlabel']) ? false : $args['countlabel'];
         $wherearray = ['bookingid' => (int)$booking->id];
 
         $additionalwhere = '';
         self::set_wherearray_from_arguments($args, $wherearray, $additionalwhere);
-
-        [$fields, $from, $where, $params, $filter] = self::get_sql_params($booking, $wherearray, $additionalwhere, $userid);
-
-        $table->set_filter_sql($fields, $from, $where, $filter, $params);
 
         $table->use_pages = false;
 
@@ -497,6 +503,10 @@ class shortcodes {
         self::set_table_options_from_arguments($table, $args);
 
         $table->cardsort = true;
+
+        [$fields, $from, $where, $params, $filter] = self::get_sql_params($booking, $wherearray, $additionalwhere, $userid, $table);
+
+        $table->set_filter_sql($fields, $from, $where, $filter, $params);
 
         // We override the cache, because the my cache has to be invalidated with every booking.
         $table->define_cache('mod_booking', 'mybookingoptionstable');
@@ -590,12 +600,12 @@ class shortcodes {
     /**
      * Initiates table of courses.
      *
-     * @param mixed $booking
+     * @param array $args
      *
      * @return musi_table $table
      *
      */
-    private static function inittableforcourses() {
+    private static function inittableforcourses($args = []) {
 
         global $PAGE, $USER;
 
@@ -605,6 +615,12 @@ class shortcodes {
         $url = $url->out();
         if (strpos($url, 'cashier.php') === false) {
             shopping_cart::buy_for_user(0);
+        }
+
+        // Check if rendering is for another user id.
+        $userid = actforuser::get_foruserid($args);
+        if ($userid > 0) {
+            shopping_cart::buy_for_user($userid);
         }
 
         $tablename = bin2hex(random_bytes(12));
@@ -640,22 +656,26 @@ class shortcodes {
     public static function add_standardfilters($table) {
         // Turn on or off.
         if (get_config('local_musi', 'musishortcodesshowfilterbookable')) {
-            $callbackfilter = new callback('bookable', get_string('bookable', 'local_musi'));
-            $callbackfilter->add_options([
-                0 => get_string('notbookable', 'local_musi'),
-                1 => get_string('bookable', 'local_musi'),
-            ]);
-            // This filter expects a record from booking options table.
-            // We check if it is bookable for the user.
-            $callbackfilter->define_callbackfunction('local_musi\shortcodes::filter_bookable');
-            $table->add_filter($callbackfilter);
+            $table->add_filter(available_places::get());
         }
 
-        $standardfilter = new standardfilter('sport', get_string('sport', 'local_musi'));
-        $table->add_filter($standardfilter);
+        // The custom fields to create a filter on.
+        $customfieldskeys = [
+            'sport' => get_string('sport', 'local_musi'),
+            'sportsdivision' => get_string('sportsdivision', 'local_musi'),
+            'botags' => get_string('tags', 'core'),
+        ];
 
-        $standardfilter = new standardfilter('sportsdivision', get_string('sportsdivision', 'local_musi'));
-        $table->add_filter($standardfilter);
+        // Fetch desired custom fields.
+        $customfields = booking_handler::get_customfields(array_keys($customfieldskeys));
+
+        // Create a filter for desired custom fileds using customfieldfilter.
+        foreach ($customfields as $cfid => $cf) {
+            $localizedstring = $customfieldskeys[$cf->shortname];
+            $customfieldfilter = new customfieldfilter($cf->shortname, $localizedstring);
+            $customfieldfilter->set_sql_for_fieldid($cfid);
+            $table->add_filter($customfieldfilter);
+        }
 
         $standardfilter = new standardfilter('teacherobjects', get_string('teachers', 'mod_booking'));
         $standardfilter->add_options(['jsonattribute' => 'name']);
@@ -675,9 +695,6 @@ class shortcodes {
         $table->add_filter($standardfilter);
 
         $standardfilter = new standardfilter('location', get_string('location', 'mod_booking'));
-        $table->add_filter($standardfilter);
-
-        $standardfilter = new standardfilter('botags', get_string('tags', 'core'));
         $table->add_filter($standardfilter);
 
         if (get_config('local_musi', 'musishortcodesshowfiltercoursetime')) {
@@ -1217,11 +1234,18 @@ class shortcodes {
      * @param mixed $wherearray
      * @param mixed $additionalwhere
      * @param int $userid
+     * @param ?wunderbyte_table $tableinstance
      *
      * @return array
      *
      */
-    private static function get_sql_params($booking, $wherearray, $additionalwhere, $userid = null) {
+    private static function get_sql_params(
+        $booking,
+        $wherearray,
+        $additionalwhere,
+        $userid = null,
+        ?wunderbyte_table $tableinstance = null
+    ) {
 
         return  [$fields, $from, $where, $params, $filter] =
                     booking::get_options_filter_sql(
@@ -1234,7 +1258,9 @@ class shortcodes {
                         $wherearray,
                         $userid,
                         [MOD_BOOKING_STATUSPARAM_BOOKED],
-                        $additionalwhere
+                        $additionalwhere,
+                        '',
+                        $tableinstance
                     );
     }
 
