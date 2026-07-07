@@ -15,43 +15,39 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Test the contract formula.
+ * An overview of all booking options the currently logged in user
+ * has marked as favorites.
  *
  * @package local_musi
- * @copyright 2022 Georg Maißer <info@wunderbyte.at>
+ * @copyright 2025 Wunderbyte GmbH <info@wunderbyte.at>
  * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-use local_musi\contractmanager;
-
-require_once(__DIR__ . '/../../../config.php');
+require_once(__DIR__ . '/../../config.php');
 
 // No guest autologin.
 require_login(0, false);
 
-global $DB, $PAGE, $OUTPUT, $USER;
-
-// NOTE: THIS IS CURRENTLY NEVER USED!
-
-$userid = required_param('userid', PARAM_INT);
+global $PAGE, $OUTPUT;
 
 if (!$context = context_system::instance()) {
     throw new moodle_exception('badcontext');
 }
+
 $PAGE->set_context($context);
 
-$title = get_string('contractformulatest', 'local_musi');
+$title = "<i class=\"fa fa-star-o\" aria-hidden=\"true\"></i>&nbsp;" . get_string('myfavorites', 'local_musi');
 
-$PAGE->set_url('/local/musi/tests/contractformula_test.php');
+$PAGE->set_url('/local/musi/meinefavoriten.php');
 $PAGE->navbar->add($title);
-$PAGE->set_title(format_string($title));
-$PAGE->set_heading($title);
-$PAGE->set_pagelayout('standard');
-$PAGE->add_body_class('local_musi-contractformula-test');
+$PAGE->set_title($title);
+$PAGE->set_pagelayout('base');
+$PAGE->add_body_class('local_musi-meinefavoriten');
 
 echo $OUTPUT->header();
 
-echo "<p>Gesetzte userid: $userid</p>";
-echo "Stundensatz: " . contractmanager::get_hourrate($userid);
+echo "<div class='text-center h1'>$title</div>";
+
+echo format_text("[meinefavoriten]", FORMAT_HTML);
 
 echo $OUTPUT->footer();

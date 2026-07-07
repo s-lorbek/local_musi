@@ -44,6 +44,7 @@ use local_wunderbyte_table\filters\types\datepicker;
 use local_wunderbyte_table\filters\types\standardfilter;
 use mod_booking\booking;
 use mod_booking\shortcodes_handler;
+use mod_booking\utils\wb_payment;
 use mod_booking\singleton_service;
 use moodle_url;
 
@@ -89,7 +90,7 @@ class shortcodes {
      * @param mixed $next
      * @param bool $renderascard
      * @param string $additionalwhere
-     * @param array $additionalpalarms
+     * @param array $additionalparams
      *
      * @return array
      *
@@ -154,7 +155,7 @@ class shortcodes {
         $table->use_pages = true;
 
         if (!empty($args['image'])) {
-            $table->set_tableclass('cardimageclass', 'pr-0 pl-1');
+            $table->set_tableclass('cardimageclass', 'pe-0 ps-1');
             $table->add_subcolumns('cardimage', ['image']);
         }
 
@@ -176,6 +177,10 @@ class shortcodes {
         if (!empty($additionalparams)) {
             $params = array_merge($params, $additionalparams);
         }
+
+        // Add all=true parameter (also works with all=1).
+        \mod_booking\shortcodes::applyallarg($args, $where);
+
         $table->set_filter_sql($fields, $from, $where, $filter, $params);
 
         return [$table, $perpage];
@@ -362,6 +367,9 @@ class shortcodes {
 
         [$fields, $from, $where, $params, $filter] = self::get_sql_params($booking, $wherearray, $additionalwhere, null, $table);
 
+        // Add all=true parameter (also works with all=1).
+        \mod_booking\shortcodes::applyallarg($args, $where);
+
         $table->set_filter_sql($fields, $from, $where, $filter, $params);
 
         $table->tabletemplate = 'local_musi/table_grid_list';
@@ -415,6 +423,70 @@ class shortcodes {
 
         // We override the cache, because the my cache has to be invalidated with every booking.
         $table->define_cache('mod_booking', 'mybookingoptionstable');
+
+        return self::generate_output($args, $table, $perpage);
+    }
+
+    /**
+     * Prints out list of cards of favorite bookingoptions.
+     * Arguments can be 'id', 'category' or 'perpage'.
+     *
+     * @param string $shortcode
+     * @param array $args
+     * @param string|null $content
+     * @param object $env
+     * @param Closure $next
+     * @return string
+     */
+    public static function myfavoritescards($shortcode, $args, $content, $env, $next) {
+
+        if (!wb_payment::pro_version_is_activated()) {
+            return get_string('infotext:prolicensenecessarytextandlink', 'mod_booking');
+        }
+
+        if (!get_config('booking', 'enablefavoritestoggle')) {
+            $settingsurl = new moodle_url(
+                '/admin/settings.php',
+                ['section' => 'modsettingbooking'],
+                'admin-enablefavoritestoggle'
+            );
+            return get_string('infotext:favoritestoggleisdisabled', 'mod_booking', $settingsurl->out(false));
+        }
+
+        self::fix_args($args);
+        $booking = self::get_booking($args);
+
+        $perpage = \mod_booking\shortcodes::check_perpage($args);
+
+        $table = self::inittableforcourses($args, 'myfavoritestable');
+
+        $wherearray = ['bookingid' => (int)$booking->id];
+
+        $additionalwhere = '';
+        self::set_wherearray_from_arguments($args, $wherearray, $additionalwhere);
+
+        if (isset($args['teacherid']) && (is_int((int)$args['teacherid']))) {
+            $wherearray['teacherobjects'] = '%"id":' . $args['teacherid'] . ',%';
+        }
+
+        $table->use_pages = false;
+        $table->scrolltocontainer = false;
+
+        // For "my courses" we show receipts by default.
+        $args['showreceipts'] = $args['showreceipts'] ?? true;
+        self::generate_table_for_cards($table, $args);
+
+        // Always enable favorites toggle for the [myfavoritescards] shortcode.
+        $args['favorites'] = '1';
+
+        self::set_table_options_from_arguments($table, $args);
+        $table->cardsort = true;
+
+        // Pass null as userid so get_sql_params does not add a STATUSPARAM_BOOKED filter.
+        // Favorites are stored as a user preference; query_db_cached injects the IN-clause dynamically.
+        [$fields, $from, $where, $params, $filter] = self::get_sql_params($booking, $wherearray, $additionalwhere, null, $table);
+
+        $table->set_filter_sql($fields, $from, $where, $filter, $params);
 
         return self::generate_output($args, $table, $perpage);
     }
@@ -601,11 +673,12 @@ class shortcodes {
      * Initiates table of courses.
      *
      * @param array $args
+     * @param string $suffix Optional table-name suffix.
      *
      * @return musi_table $table
      *
      */
-    private static function inittableforcourses($args = []) {
+    private static function inittableforcourses($args = [], string $suffix = '') {
 
         global $PAGE, $USER;
 
@@ -624,6 +697,9 @@ class shortcodes {
         }
 
         $tablename = bin2hex(random_bytes(12));
+        if ($suffix !== '') {
+            $tablename .= ' ' . $suffix;
+        }
 
         // It's important to have the baseurl defined, we use it as a return url at one point.
         $baseurl = $PAGE->url ?? new moodle_url('');
@@ -854,7 +930,7 @@ class shortcodes {
 
         $table->add_subcolumns('cardbody', ['action', 'invisibleoption', 'sportsdivision', 'sport', 'text', 'botags']);
         $table->add_classes_to_subcolumns('cardbody', ['columnkeyclass' => 'd-none']);
-        $table->add_classes_to_subcolumns('cardbody', ['columnvalueclass' => 'float-right m-1'], ['action']);
+        $table->add_classes_to_subcolumns('cardbody', ['columnvalueclass' => 'float-end m-1 pe-1'], ['action']);
         $table->add_classes_to_subcolumns('cardbody', ['columnvalueclass' => 'font-size-sm'], ['botags']);
         $table->add_classes_to_subcolumns(
             'cardbody',
@@ -1003,20 +1079,20 @@ class shortcodes {
         $table->add_subcolumns('rightside', ['course', 'price']);
 
         $table->add_classes_to_subcolumns('top', ['columnkeyclass' => 'd-none']);
-        $table->add_classes_to_subcolumns('top', ['columnclass' => 'text-left col-md-8'], ['sport', 'sportsdivision']);
+        $table->add_classes_to_subcolumns('top', ['columnclass' => 'text-start col-md-8'], ['sport', 'sportsdivision']);
         $table->add_classes_to_subcolumns('top', ['columnvalueclass' =>
             'sport-badge rounded-sm text-gray-800 mt-2'], ['sport']);
         $table->add_classes_to_subcolumns('top', ['columnvalueclass' =>
             'sportsdivision-badge'], ['sportsdivision']);
-        $table->add_classes_to_subcolumns('top', ['columnclass' => 'text-right col-md-2 position-relative pr-0'], ['action']);
+        $table->add_classes_to_subcolumns('top', ['columnclass' => 'text-end col-md-2 position-relative pe-0'], ['action']);
 
         $table->add_classes_to_subcolumns('leftside', ['columnkeyclass' => 'd-none']);
-        $table->add_classes_to_subcolumns('leftside', ['columnclass' => 'text-left mt-1 mb-1 h3 col-md-auto'], ['text']);
+        $table->add_classes_to_subcolumns('leftside', ['columnclass' => 'text-start mt-1 mb-1 h3 col-md-auto'], ['text']);
         if (get_config('local_musi', 'shortcodelists_showdescriptions')) {
-            $table->add_classes_to_subcolumns('leftside', ['columnclass' => 'text-left mt-1 mb-3 col-md-auto'], ['description']);
+            $table->add_classes_to_subcolumns('leftside', ['columnclass' => 'text-start mt-1 mb-3 col-md-auto'], ['description']);
         }
         $table->add_classes_to_subcolumns('info', ['columnkeyclass' => 'd-none']);
-        $table->add_classes_to_subcolumns('info', ['columnclass' => 'text-left text-secondary font-size-sm pr-2']);
+        $table->add_classes_to_subcolumns('info', ['columnclass' => 'text-start text-secondary font-size-sm pe-2']);
         $table->add_classes_to_subcolumns('info', ['columnvalueclass' => 'd-flex'], ['teacher']);
         $table->add_classes_to_subcolumns('info', ['columniclassbefore' => 'fa fa-clock-o'], ['dayofweektime']);
         $table->add_classes_to_subcolumns('info', ['columniclassbefore' => 'fa fa-map-marker'], ['location']);
@@ -1047,12 +1123,12 @@ class shortcodes {
 
         $table->add_classes_to_subcolumns(
             'rightside',
-            ['columnvalueclass' => 'text-right mb-auto align-self-end shortcodes_option_info_invisible '],
+            ['columnvalueclass' => 'text-end mb-auto align-self-end shortcodes_option_info_invisible '],
             ['invisibleoption']
         );
-        $table->add_classes_to_subcolumns('rightside', ['columnclass' => 'text-right mb-auto align-self-end '], ['botags']);
+        $table->add_classes_to_subcolumns('rightside', ['columnclass' => 'text-end mb-auto align-self-end '], ['botags']);
         $table->add_classes_to_subcolumns('rightside', ['columnclass' =>
-            'text-right mt-auto w-100 align-self-end theme-text-color bold '], ['price']);
+            'text-end mt-auto w-100 align-self-end theme-text-color bold '], ['price']);
 
         // Override naming for columns. one could use getstring for localisation here.
         $table->add_classes_to_subcolumns(
@@ -1138,7 +1214,7 @@ class shortcodes {
 
     /**
      * Helper function to remove quotation marks from args.
-     * @param array &$args reference to arguments array
+     * @param array $args reference to arguments array
      */
     private static function fix_args(array &$args) {
         foreach ($args as $key => &$value) {
@@ -1228,8 +1304,6 @@ class shortcodes {
     }
     /**
      * Helperfunction to get SQL Params.
-     *
-     * @param mixed $args
      * @param mixed $booking
      * @param mixed $wherearray
      * @param mixed $additionalwhere

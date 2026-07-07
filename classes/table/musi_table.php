@@ -23,6 +23,7 @@ use dml_exception;
 use html_writer;
 use local_wunderbyte_table\wunderbyte_table;
 use mod_booking\booking_bookit;
+use mod_booking\table\bookingoptions_wbtable;
 use mod_booking\booking_option;
 use mod_booking\option\dates_handler;
 use mod_booking\output\col_availableplaces;
@@ -48,7 +49,7 @@ defined('MOODLE_INTERNAL') || die();
  * @copyright 2025 Wunderbyte Gmbh <info@wunderbyte.at>
  * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class musi_table extends wunderbyte_table {
+class musi_table extends bookingoptions_wbtable {
     /** @var array $displayoptions */
     private $displayoptions = [];
 
@@ -488,7 +489,7 @@ class musi_table extends wunderbyte_table {
                         get_string('showdescription', 'mod_booking') . '...</a>
                         </div>
                         <div class="collapse" id="collapseDescription' . $values->id . '">
-                            <div class="card card-body border-1 mt-1 mb-1 mr-3">' . $ret . '</div>
+                            <div class="card card-body border-1 mt-1 mb-1 me-3">' . $ret . '</div>
                         </div>';
                 }
 
@@ -667,7 +668,7 @@ class musi_table extends wunderbyte_table {
                 foreach ($botagsarray as $botag) {
                     if (!empty($botag)) {
                         $botagsstring .=
-                            "<span class='musi-table-botag rounded-sm bg-info text-light pl-1 pr-1 pb-0 pt-0 mr-1'>
+                            "<span class='musi-table-botag rounded-sm bg-info text-light ps-1 pe-1 pb-0 pt-0 me-1'>
                             $botag
                             </span>";
                     } else {
@@ -1086,7 +1087,22 @@ class musi_table extends wunderbyte_table {
                 !empty($bocache)
                 && isset($bocache->{$bokey}[$USER->id])
             ) {
-                return $bocache->{$bokey}[$USER->id];
+                // Cache contains only the menu HTML (no star toggle).
+                // Add the star fresh so it always reflects the current state.
+                $cachedhml = $bocache->{$bokey}[$USER->id];
+                if (isloggedin() && !isguestuser() && $this->showfavoritestoggle) {
+                    $isfavorite = booking_option::user_has_favorite($USER->id, $values->id);
+                    $favoritestoggle = $this->render_toggle_favorite_action_button(
+                        $values->id,
+                        $USER->id,
+                        $isfavorite,
+                        'text-primary',
+                    );
+                    $cachedhml = '<div class="d-flex align-items-center justify-content-end">' .
+                        $favoritestoggle . $cachedhml .
+                    '</div>';
+                }
+                return $cachedhml;
             }
         }
 
@@ -1113,7 +1129,7 @@ class musi_table extends wunderbyte_table {
             if (!empty($bosettings)) {
                 $context = context_module::instance($bosettings->cmid);
 
-                // ONLY users with the mod/booking:updatebooking capability can edit options or designaated teachers.
+                // ONLY users with the mod/booking:updatebooking capability can edit options or designated teachers.
                 $allowedit = (
                     has_capability('mod/booking:updatebooking', $context)
                     || (has_capability('mod/booking:addeditownoption', $context) && booking_check_if_teacher($values))
@@ -1165,6 +1181,10 @@ class musi_table extends wunderbyte_table {
                     if (isset($bosettings->manageresponsesurl)) {
                         // Get the URL to manage responses (answers) for the option.
                         $data->manageresponsesurl = $bosettings->manageresponsesurl;
+                        if (get_config('booking', 'bookingstracker')) {
+                            // Get the URL for the bookingstracker report.
+                            $data->bookingstrackerurl = $bosettings->bookingstrackerurl;
+                        }
                     }
 
                     if (isset($bosettings->optiondatesteachersurl)) {
@@ -1223,10 +1243,25 @@ class musi_table extends wunderbyte_table {
         $output = singleton_service::get_renderer('local_musi');
         $html = $output->render_musi_bookingoption_menu($data);
 
+        // Cache only the menu HTML — never the star toggle (user-specific, must be fresh).
         if (get_config('local_musi', 'musicachebookingoptionsettings') && !empty($bocache)) {
             $bocache->{$bokey}[$USER->id] = $html;
             $cache->set($cachekey, $bocache);
         }
+
+        // Prepend the star toggle after caching so it is never stored in the cache.
+        // Wrap both in a flex container so star and gear appear side by side.
+        if (isloggedin() && !isguestuser() && $this->showfavoritestoggle) {
+            $isfavorite = booking_option::user_has_favorite($USER->id, $values->id);
+            $favoritestoggle = $this->render_toggle_favorite_action_button(
+                $values->id,
+                $USER->id,
+                $isfavorite,
+                'text-primary'
+            );
+            $html = '<div class="d-flex align-items-center justify-content-end">' . $favoritestoggle . $html . '</div>';
+        }
+
         return $html;
     }
 

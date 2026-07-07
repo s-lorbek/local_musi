@@ -1,3 +1,32 @@
+## Version 1.0.6 (2026070300)
+* Improvement: Better color contrasts.
+* Improvement: Accessibility - Add aria-label for gear.
+* Bugfix: Fix incomplete PHPDoc parameters.
+* Bugfix: Kostenstelle auch bei manuellen Nachbuchungen verfügbar machen und nicht customfield nicht mehr hardcoden.
+* Bugfix: Show countlabel of tables also when filters find no records.
+
+## Version 1.0.5 (2026060300)
+* Improvement: Add Support for Apple Pay (AP) and Google Pay (GP).
+* Improvement: Lots of fixes for better accessibility.
+* Bugfix: Add missing definition string for Shortcode meinefavoriten (shortcodeslistofmyfavoritesascards).
+
+## Version 1.0.4 (2026043000)
+* New feature: My favorites.
+* Improvement: Right padding for action column (for favorites toggle / star icon).
+* Improvement: Neue Capability: local/musi:wettkampf.
+* Improvement: Add bookings tracker to dropdown menu.
+* Improvement: Add "My favorites" to meinekurse.php.
+
+## Version 1.0.3 (2026032600)
+* Improvement: Param all=true für [allekurseliste] shortcode und Hinweis bei leeren Semestern auf meinekurse.php (MUSI-856).
+* Improvement: Get rid of legacy code for moodleversionminfourtwo CSS stylings.
+
+## Version 1.0.2 (2026020500)
+* Bugfix: Correctly hide expired options.
+* Bugfix: Fallback if additionalpricetext isn't set.
+* Bugfix: Use arg_is_true helper function instead of !empty check.
+* Bugfix: Increase wunderbyte table dependency (for security hotfix).
+
 ## Version 1.0.1 (2026010700)
 * Improvement: Add entities cache.
 
@@ -232,7 +261,7 @@
 * New feature: Filters for booking time and course time.
 * Improvement: Add new requirelogin argument to shortcodes.
 * Improvement: Add requirelogin=false to shortcodes.
-* Improvement: Make sure wbtable container is aligned left by adding left margin of 0 (ml-0).
+* Improvement: Make sure wbtable container is aligned left by adding left margin of 0 (ms-0).
 * Bugfix: Remove table prefix and use curly brackets.
 * Bugfix: All plugin constants must start with uppercase frankenstyle prefix.
 * Bugfix: Add missing "action_" to update_status function (because of new wbtable security feature).

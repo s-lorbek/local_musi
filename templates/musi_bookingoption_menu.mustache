@@ -42,8 +42,8 @@
 
 {{#optiondatesteachersurl}}
 <div id="coltextlink-dropdown" class="dropdown">
-  <button class="btn btn-white dropdown-toggle mt-1" type="button" id="dropdownMenuButton" data-toggle="dropdown" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-    <i class="fa fa-gear" aria-hidden="true"></i>
+  <button class="btn btn-white dropdown-toggle mt-1" type="button" id="dropdownMenuButton" data-toggle="dropdown" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false" aria-label="{{#str}} actions {{/str}}">
+    <i class="fa fa-gear" aria-label="{{#str}} actions {{/str}}" aria-hidden="true"></i>
   </button>
   <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
       <h6 class="dropdown-header">{{#str}} actions {{/str}}</h6>
@@ -67,6 +67,11 @@
         <i class="fa fa-ticket fa-fw" aria-hidden="true"></i> {{#str}} manageresponses, mod_booking {{/str}}
       </a>
       {{/manageresponsesurl}}
+      {{#bookingstrackerurl}}
+      <a class="dropdown-item bookingstracker" href="{{bookingstrackerurl}}" target="_self">
+        <i class="fa fa-sitemap fa-fw" aria-hidden="true"></i> {{#str}} bookingstracker, mod_booking {{/str}}
+      </a>
+      {{/bookingstrackerurl}}
       {{#showcancel}}{{{cancellink}}}{{/showcancel}}
       {{#showundocancel}}{{{undocancellink}}}{{/showundocancel}}
       {{#optiondatesteachersurl}}
